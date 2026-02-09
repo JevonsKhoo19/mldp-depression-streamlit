@@ -22,7 +22,6 @@ Educational MLDP project that trains a binary classification model to predict **
 ---
 
 ## Files
-
 - `streamlit_app.py` — Streamlit application entry point
 - `MLDP_Depression.ipynb` — notebook for development + experiments
 - `student_depression_dataset.csv` — dataset used in notebook
