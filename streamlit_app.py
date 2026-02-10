@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import joblib
-from sklearn.metrics import confusion_matrix
+
 
 # Load model + training columns
 model = joblib.load("fe1_tuned_lr.joblib")
@@ -26,12 +26,14 @@ RATING_COLS_0_10 = [
     "Study Satisfaction", "Job Satisfaction"
 ]
 
+
 def clamp(x, lo, hi):
     try:
         x = float(x)
     except Exception:
         return None
     return max(lo, min(hi, x))
+
 
 def sanitize_inputs(inp: dict):
     """
@@ -93,6 +95,7 @@ def sanitize_inputs(inp: dict):
 
     return out, changes
 
+
 def risk_band(p: float):
     if p < 0.40:
         return "Low"
@@ -100,12 +103,14 @@ def risk_band(p: float):
         return "Moderate"
     return "High"
 
+
 def predict_from_inputs(inp: dict):
     """Build raw DF -> FE1 -> model proba."""
     df_in = pd.DataFrame([{c: inp.get(c) for c in RAW_COLS}])
     X_in = preprocess_fe1(df_in)
     proba = float(model.predict_proba(X_in)[0, 1])
     return proba, X_in
+
 
 def build_report_df(inp_original: dict, inp_sanitized: dict, mode: str, threshold: float, proba: float, pred: int):
     base = {
@@ -115,7 +120,7 @@ def build_report_df(inp_original: dict, inp_sanitized: dict, mode: str, threshol
         "Predicted_Class": pred,
         "Risk_Band": risk_band(proba),
     }
-    
+
     row = {}
     for c in RAW_COLS:
         row[f"input_{c}"] = inp_sanitized.get(c, None)
@@ -125,6 +130,7 @@ def build_report_df(inp_original: dict, inp_sanitized: dict, mode: str, threshol
 
     row.update(base)
     return pd.DataFrame([row])
+
 
 # Page config
 st.set_page_config(page_title="Depression Prediction (FE1 Tuned LR)", layout="centered")
@@ -177,24 +183,33 @@ st.sidebar.write("- Try changing **Operating Mode** to see how the prediction ch
 st.sidebar.write("- Use **Scenario A/B** to capture screenshots for your report.")
 st.sidebar.write("- Ratings are treated as 0–10 scales.")
 
-# FE1 preprocessing 
+
+# FE1 preprocessing  (CHANGED ONLY WHERE NEEDED)
 def preprocess_fe1(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
 
-    # numeric safety for FE1 columns
-    df["Academic Pressure"] = pd.to_numeric(df["Academic Pressure"], errors="coerce")
-    df["Work Pressure"] = pd.to_numeric(df["Work Pressure"], errors="coerce")
+    # --- 1) Ensure FE1 source columns numeric, and fill using TRAIN defaults (NOT per-row medians) ---
+    ap_default = float(num_defaults.get("Academic Pressure", 3.0))
+    wp_default = float(num_defaults.get("Work Pressure", 0.0))
 
-    # FE1 engineered feature
+    df["Academic Pressure"] = pd.to_numeric(df["Academic Pressure"], errors="coerce").fillna(ap_default)
+    df["Work Pressure"] = pd.to_numeric(df["Work Pressure"], errors="coerce").fillna(wp_default)
+
+    # --- 2) FE1 engineered feature ---
     df["Total_Pressure"] = df["Academic Pressure"] + df["Work Pressure"]
 
     # drop originals
     df = df.drop(columns=["Academic Pressure", "Work Pressure"])
 
-    # fill missing
+    # --- 3) Fill categoricals ---
     dyn_cat = df.select_dtypes(include=["object", "category"]).columns
     df[dyn_cat] = df[dyn_cat].fillna("Unknown")
-    df = df.fillna(df.median(numeric_only=True))
+
+    # --- 4) Fill numerics using TRAIN medians/defaults (NOT df.median of 1 row) ---
+    # Only fill columns that still exist after FE1.
+    for c, v in num_defaults.items():
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(float(v))
 
     # one-hot
     df_enc = pd.get_dummies(df, columns=dyn_cat, drop_first=True)
@@ -202,6 +217,7 @@ def preprocess_fe1(df_raw: pd.DataFrame) -> pd.DataFrame:
     # match training columns
     df_enc = df_enc.reindex(columns=FE1_COLS, fill_value=0)
     return df_enc
+
 
 # Validation
 def validate_inputs(inp: dict) -> list[str]:
@@ -234,6 +250,7 @@ def validate_inputs(inp: dict) -> list[str]:
 
     return errs
 
+
 # UI
 st.subheader("Inputs")
 
@@ -247,12 +264,12 @@ with st.expander("Input notes (to avoid weird decimals)", expanded=False):
 
 # Session state
 if "saved" not in st.session_state:
-    st.session_state.saved = {}  
+    st.session_state.saved = {}
 
-# Stores the most recent successful prediction 
+# Stores the most recent successful prediction
 if "last_pred" not in st.session_state:
     st.session_state.last_pred = None
-    
+
 
 with st.form("predict_form"):
     inputs = {}
@@ -273,7 +290,7 @@ with st.form("predict_form"):
     st.markdown("### Stress & Pressure")
     inputs["Academic Pressure"] = st.number_input(
         "Academic Pressure (0–10)",
-        value=float(num_defaults.get("Academic Pressure", 0.0)),
+        value=float(num_defaults.get("Academic Pressure", 3.0)),
         min_value=0.0
     )
     inputs["Work Pressure"] = st.number_input(
@@ -326,6 +343,7 @@ with st.form("predict_form"):
     st.caption(f"Current Operating Mode: **{mode}** | Threshold: **{threshold:.2f}**")
     submitted = st.form_submit_button("Predict")
 
+
 # Predict + display
 show_results = submitted or (st.session_state.last_pred is not None)
 
@@ -355,7 +373,7 @@ if show_results:
             "proba": float(proba),
         }
 
-    # Otherwise  reuse last prediction 
+    # Otherwise reuse last prediction
     last = st.session_state.last_pred
     raw_inputs = last["raw_inputs"]
     sanitized_inputs = last["sanitized_inputs"]
@@ -364,11 +382,10 @@ if show_results:
 
     pred = int(proba >= threshold)
 
-    
     df_in = pd.DataFrame([{c: sanitized_inputs.get(c) for c in RAW_COLS}])
     X_in = preprocess_fe1(df_in)
 
-    # Result section 
+    # Result section
     st.markdown("## Result")
 
     c1, c2, c3, c4 = st.columns(4)
@@ -387,7 +404,7 @@ if show_results:
     if not submitted:
         st.info("Showing your **last prediction** (so the page doesn’t reset). Click **Predict** after changing inputs to update the model output.")
 
-    # Show rounding/clamping info 
+    # Show rounding/clamping info
     if changes:
         with st.expander("Auto-adjustments applied (for consistency)", expanded=False):
             st.write("Some values were rounded/clamped to match typical dataset scales:")
@@ -402,7 +419,7 @@ if show_results:
     # Small explanation about trade-offs
     with st.expander("How to interpret this (trade-offs)", expanded=False):
         st.write(
-            "- **Lower threshold** → higher **Recall** (catch more positives), but more false positives.\n"
+            "- **Lower threshold** → higher **Recall** (catch more positives) but more false positives.\n"
             "- **Higher threshold** → higher **Precision**, but more missed positives (false negatives).\n"
             "- You can change the **Operating Mode** on the left to see how predictions shift."
         )
@@ -436,7 +453,7 @@ if show_results:
     st.markdown("### Explanation (Top Drivers)")
 
     coef = model.coef_[0]
-    contrib = X_in.iloc[0].values * coef  
+    contrib = X_in.iloc[0].values * coef
     explain_df = pd.DataFrame({
         "feature": X_in.columns,
         "contribution": contrib
@@ -453,7 +470,7 @@ if show_results:
     # What-if analysis
     st.markdown("### What-if Analysis (try changing key factors)")
 
-    wi = dict(sanitized_inputs)  
+    wi = dict(sanitized_inputs)
     w1, w2, w3 = st.columns(3)
     with w1:
         wi["Academic Pressure"] = st.slider("What-if Academic Pressure", 0, 10, int(wi["Academic Pressure"]), 1, key="wi_acad")
