@@ -3,13 +3,11 @@ import pandas as pd
 import joblib
 from sklearn.metrics import confusion_matrix
 
-# ========================================================
 # Load model + training columns
-# ========================================================
 model = joblib.load("fe1_tuned_lr.joblib")
 FE1_COLS = joblib.load("fe1_columns.joblib")
 
-# Load UI metadata (generated from your notebook)
+# Load UI metadata, from my notebook
 cat_cols = joblib.load("fe1_cat_cols.joblib")
 num_cols = joblib.load("fe1_num_cols.joblib")
 cat_options = joblib.load("fe1_cat_options.joblib")
@@ -22,9 +20,7 @@ RAW_COLS = [
     "Family History of Mental Illness"
 ]
 
-# =========================================================
-# Additions: helpers for better UX / safer inputs
-# =========================================================
+# helpers for better UX / safer inputs
 RATING_COLS_0_10 = [
     "Academic Pressure", "Work Pressure", "Financial Stress",
     "Study Satisfaction", "Job Satisfaction"
@@ -98,7 +94,6 @@ def sanitize_inputs(inp: dict):
     return out, changes
 
 def risk_band(p: float):
-    # Simple bands for UI (not medical)
     if p < 0.40:
         return "Low"
     elif p < 0.70:
@@ -120,7 +115,7 @@ def build_report_df(inp_original: dict, inp_sanitized: dict, mode: str, threshol
         "Predicted_Class": pred,
         "Risk_Band": risk_band(proba),
     }
-    # Flatten inputs (sanitized is what model used)
+    
     row = {}
     for c in RAW_COLS:
         row[f"input_{c}"] = inp_sanitized.get(c, None)
@@ -131,9 +126,7 @@ def build_report_df(inp_original: dict, inp_sanitized: dict, mode: str, threshol
     row.update(base)
     return pd.DataFrame([row])
 
-# =========================================================
 # Page config
-# =========================================================
 st.set_page_config(page_title="Depression Prediction (FE1 Tuned LR)", layout="centered")
 
 st.title("Depression Prediction (FE1 Tuned LR)")
@@ -149,9 +142,8 @@ with st.expander("What this app does (and does NOT do)", expanded=False):
         "If this topic feels heavy or you’re feeling overwhelmed, it can help to talk to a trusted adult or a professional."
     )
 
-# =========================================================
+
 # Sidebar: Operating mode + threshold
-# =========================================================
 st.sidebar.header("Model Settings")
 
 mode = st.sidebar.radio(
@@ -178,16 +170,14 @@ st.sidebar.caption(
     "Higher threshold → higher Precision but more false negatives."
 )
 
-# Additions: small UI hints + export button placeholder
+# small UI hints + export button placeholder
 st.sidebar.divider()
 st.sidebar.subheader("Tips")
 st.sidebar.write("- Try changing **Operating Mode** to see how the prediction changes.")
 st.sidebar.write("- Use **Scenario A/B** to capture screenshots for your report.")
 st.sidebar.write("- Ratings are treated as 0–10 scales.")
 
-# =========================================================
-# FE1 preprocessing (must match notebook)
-# =========================================================
+# FE1 preprocessing 
 def preprocess_fe1(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
 
@@ -213,9 +203,7 @@ def preprocess_fe1(df_raw: pd.DataFrame) -> pd.DataFrame:
     df_enc = df_enc.reindex(columns=FE1_COLS, fill_value=0)
     return df_enc
 
-# =========================================================
-# Validation (user-facing)
-# =========================================================
+# Validation
 def validate_inputs(inp: dict) -> list[str]:
     errs = []
 
@@ -229,7 +217,6 @@ def validate_inputs(inp: dict) -> list[str]:
     if hours is None or hours < 0 or hours > 24:
         errs.append("Work/Study Hours should be between 0 and 24.")
 
-    # These are typically small scales in the dataset; keep broad but sensible
     for col in ["Academic Pressure", "Work Pressure", "Financial Stress"]:
         v = inp.get(col)
         if v is None or v < 0 or v > 10:
@@ -240,19 +227,17 @@ def validate_inputs(inp: dict) -> list[str]:
         if v is None or v < 0 or v > 10:
             errs.append(f"{col} should be between 0 and 10.")
 
-    # CGPA sanity (keep broad)
+    # CGPA sanity
     cgpa = inp.get("CGPA")
     if cgpa is None or cgpa < 0 or cgpa > 10:
         errs.append("CGPA should be between 0 and 10.")
 
     return errs
 
-# =========================================================
 # UI
-# =========================================================
 st.subheader("Inputs")
 
-# Additions: quick explanation about decimals + rounding
+# quick explanation about decimals + rounding
 with st.expander("Input notes (to avoid weird decimals)", expanded=False):
     st.write(
         "- **CGPA** can be a decimal (e.g., 4.07).\n"
@@ -260,22 +245,14 @@ with st.expander("Input notes (to avoid weird decimals)", expanded=False):
         "- If you enter decimals for rating scales, the app will **round them** before prediction for consistency."
     )
 
-# =========================================================
-# Session state (CRITICAL FIX for what-if / reruns)
-# =========================================================
+# Session state
 if "saved" not in st.session_state:
-    st.session_state.saved = {}  # {"A": {...}, "B": {...}}
+    st.session_state.saved = {}  
 
-# Stores the most recent successful prediction so sliders / buttons won't "wipe" results on rerun
+# Stores the most recent successful prediction 
 if "last_pred" not in st.session_state:
     st.session_state.last_pred = None
-    # Structure:
-    # {
-    #   "raw_inputs": dict,
-    #   "sanitized_inputs": dict,
-    #   "changes": list[str],
-    #   "proba": float
-    # }
+    
 
 with st.form("predict_form"):
     inputs = {}
@@ -349,15 +326,11 @@ with st.form("predict_form"):
     st.caption(f"Current Operating Mode: **{mode}** | Threshold: **{threshold:.2f}**")
     submitted = st.form_submit_button("Predict")
 
-# =========================================================
-# Predict + display (Fixed: keep results after rerun)
-# =========================================================
+# Predict + display
 show_results = submitted or (st.session_state.last_pred is not None)
 
 if show_results:
-    # -------------------------
     # If user clicked Predict -> compute fresh prediction and save to session_state
-    # -------------------------
     if submitted:
         sanitized_inputs, changes = sanitize_inputs(inputs)
 
@@ -374,7 +347,7 @@ if show_results:
         X_in = preprocess_fe1(df_in)
         proba = float(model.predict_proba(X_in)[0, 1])
 
-        # Save last successful prediction (KEY FIX)
+        # Save last successful prediction
         st.session_state.last_pred = {
             "raw_inputs": inputs.copy(),
             "sanitized_inputs": sanitized_inputs.copy(),
@@ -382,25 +355,20 @@ if show_results:
             "proba": float(proba),
         }
 
-    # -------------------------
-    # Otherwise -> reuse last prediction (so sliders don't wipe results)
-    # -------------------------
+    # Otherwise  reuse last prediction 
     last = st.session_state.last_pred
     raw_inputs = last["raw_inputs"]
     sanitized_inputs = last["sanitized_inputs"]
     changes = last["changes"]
     proba = float(last["proba"])
 
-    # IMPORTANT: pred depends on CURRENT threshold (so user can change mode/threshold without re-predict)
     pred = int(proba >= threshold)
 
-    # Rebuild X_in for explanation tables (fast + consistent)
+    
     df_in = pd.DataFrame([{c: sanitized_inputs.get(c) for c in RAW_COLS}])
     X_in = preprocess_fe1(df_in)
 
-    # =========================================================
-    # Result section (interactive + meaningful)
-    # =========================================================
+    # Result section 
     st.markdown("## Result")
 
     c1, c2, c3, c4 = st.columns(4)
@@ -419,14 +387,14 @@ if show_results:
     if not submitted:
         st.info("Showing your **last prediction** (so the page doesn’t reset). Click **Predict** after changing inputs to update the model output.")
 
-    # Show rounding/clamping info (if any)
+    # Show rounding/clamping info 
     if changes:
         with st.expander("Auto-adjustments applied (for consistency)", expanded=False):
             st.write("Some values were rounded/clamped to match typical dataset scales:")
             for c in changes:
                 st.write(f"- {c}")
 
-    # Additions: make output more meaningful
+    # make output more meaningful
     with st.expander("Input summary (what the model actually used)", expanded=False):
         show_df = pd.DataFrame([sanitized_inputs])[RAW_COLS]
         st.dataframe(show_df, use_container_width=True)
@@ -439,7 +407,7 @@ if show_results:
             "- You can change the **Operating Mode** on the left to see how predictions shift."
         )
 
-    # Additions: quick “relative profile” chart vs defaults (medians)
+    # quick relative profile chart vs defaults (medians)
     with st.expander("Profile vs typical (quick view)", expanded=False):
         numeric_compare_cols = [
             "Academic Pressure", "Work Pressure", "Financial Stress",
@@ -455,9 +423,7 @@ if show_results:
         comp_df = pd.DataFrame(comp).set_index("Feature")
         st.bar_chart(comp_df)
 
-    # =========================================================
     # Downloadable report
-    # =========================================================
     report_df = build_report_df(raw_inputs, sanitized_inputs, mode, threshold, proba, pred)
     st.download_button(
         "Download prediction report (CSV)",
@@ -466,13 +432,11 @@ if show_results:
         mime="text/csv"
     )
 
-    # =========================================================
     # Explanation: top drivers (LogReg coefficients)
-    # =========================================================
     st.markdown("### Explanation (Top Drivers)")
 
     coef = model.coef_[0]
-    contrib = X_in.iloc[0].values * coef  # contribution per feature
+    contrib = X_in.iloc[0].values * coef  
     explain_df = pd.DataFrame({
         "feature": X_in.columns,
         "contribution": contrib
@@ -486,12 +450,10 @@ if show_results:
         st.write("Top features decreasing risk")
         st.dataframe(explain_df.tail(8).sort_values("contribution"), use_container_width=True)
 
-    # =========================================================
-    # What-if analysis (NOW WORKS without re-clicking Predict)
-    # =========================================================
+    # What-if analysis
     st.markdown("### What-if Analysis (try changing key factors)")
 
-    wi = dict(sanitized_inputs)  # start from the last predicted profile
+    wi = dict(sanitized_inputs)  
     w1, w2, w3 = st.columns(3)
     with w1:
         wi["Academic Pressure"] = st.slider("What-if Academic Pressure", 0, 10, int(wi["Academic Pressure"]), 1, key="wi_acad")
@@ -513,9 +475,7 @@ if show_results:
     else:
         st.success(f"What-if Prediction: **0** (threshold {threshold:.2f})")
 
-    # =========================================================
     # Scenario comparison (A/B)
-    # =========================================================
     st.markdown("### Scenario Comparison (A vs B)")
 
     with st.expander("How to use A/B (quick)", expanded=False):
@@ -572,7 +532,6 @@ if show_results:
             st.write("Scenario A settings:", {"mode": A["mode"], "threshold": round(A["threshold"], 2)})
             st.write("Scenario B settings:", {"mode": B["mode"], "threshold": round(B["threshold"], 2)})
 
-            # Optional: show what changed (compact diff)
             diffs = []
             for c in RAW_COLS:
                 if A["inputs"].get(c) != B["inputs"].get(c):
